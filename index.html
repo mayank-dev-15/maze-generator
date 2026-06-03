@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maze Generator & Pathfinder</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a28;--border:#2a2a40;
+  --text:#e0e0f0;--text-dim:#8888aa;--accent:#00f0ff;--accent2:#ff00aa;
+  --wall:#1a1a3e;--path:#0d0d1a;--visited:#0044ff22;--viscent:#0066ff88;
+  --current:#ffaa00;--solution:#00ff88;--start:#00ff00;--end:#ff3333;
+  --btn-bg:#1e1e35;--btn-hover:#2a2a50;--btn-active:#3a3a6a;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,monospace;overflow:hidden}
+body{display:flex;flex-direction:column;height:100vh}
+
+/* ── HEADER ── */
+header{display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+header h1{font-size:1.2rem;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+header h1 span{font-size:1.5rem;margin-right:4px}
+
+/* ── LAYOUT ── */
+main{display:flex;flex:1;overflow:hidden}
+#sidebar{width:280px;min-width:240px;background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;flex-shrink:0}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg);position:relative}
+canvas{display:block;border:1px solid var(--border);image-rendering:pixelated}
+
+/* ── SIDEBAR SECTIONS ── */
+.sb-section{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px}
+.sb-section h3{font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.sb-section h3::after{content:'';flex:1;height:1px;background:var(--border)}
+
+label{display:block;font-size:0.78rem;color:var(--text-dim);margin-bottom:3px}
+select,input[type=number],input[type=range]{width:100%;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:0.82rem;outline:none;font-family:inherit}
+select:focus,input:focus{border-color:var(--accent)}
+.row{display:flex;gap:8px}
+.row>div{flex:1}
+
+/* ── BUTTONS ── */
+.btn{padding:7px 14px;border:1px solid var(--border);border-radius:6px;background:var(--btn-bg);color:var(--text);font-size:0.8rem;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn:hover{background:var(--btn-hover);border-color:var(--accent)}
+.btn:active{background:var(--btn-active)}
+.btn.primary{background:linear-gradient(135deg,#1a3a6a,#2a1a5a);border-color:var(--accent);color:var(--accent)}
+.btn.primary:hover{border-color:var(--accent);box-shadow:0 0 12px #00f0ff33}
+.btn.danger{border-color:#ff333355;color:#ff5555}
+.btn.danger:hover{background:#ff333322;border-color:#ff3333}
+.btn-group{display:flex;flex-wrap:wrap;gap:6px}
+
+/* ── STATS ── */
+.stat-row{display:flex;justify-content:space-between;font-size:0.78rem;padding:2px 0}
+.stat-val{color:var(--accent);font-weight:bold}
+
+/* ── LEGEND ── */
+.legend{display:flex;flex-wrap:wrap;gap:6px}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:0.72rem}
+.legend-color{width:14px;height:14px;border-radius:3px;border:1px solid var(--border)}
+
+/* ── MODE TOGGLE ── */
+.mode-toggle{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.mode-toggle .btn{flex:1;border:none;border-radius:0;background:transparent;font-size:0.72rem;padding:5px 0}
+.mode-toggle .btn.active{background:var(--btn-active);color:var(--accent)}
+.mode-toggle .btn:not(:last-child){border-right:1px solid var(--border)}
+
+/* ── COMPARE LAYOUT ── */
+.compare-layout{display:flex;gap:8px;flex:1;overflow:hidden}
+.compare-layout .canvas-half{flex:1;display:flex;align-items:center;justify-content:center}
+.compare-layout canvas{max-width:100%;max-height:100%}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:768px){
+  main{flex-direction:column}
+  #sidebar{width:100%;max-height:45vh;border-right:none;border-bottom:1px solid var(--border);min-width:auto}
+}
+
+/* In-compare overlay */
+#compare-compare{display:none;flex:1;overflow:hidden}
+</style>
+</head>
+<body>
+
+<header>
+  <span>🌀</span><h1>Maze Generator & Pathfinder</h1>
+</header>
+
+<main>
+  <div id="sidebar">
+    <div class="sb-section">
+      <h3>Generation</h3>
+      <label>Maze Algorithm</label>
+      <select id="genAlgo">
+        <option value="recursive-backtracker">Recursive Backtracker</option>
+        <option value="prims">Prim's Algorithm</option>
+        <option value="kruskals">Kruskal's Algorithm</option>
+        <option value="ellers">Eller's Algorithm</option>
+        <option value="binary-tree">Binary Tree</option>
+      </select>
+      <label style="margin-top:6px">Pathfinding Algorithm</label>
+      <select id="pathAlgo">
+        <option value="astar">A* Search</option>
+        <option value="dijkstra">Dijkstra's Algorithm</option>
+        <option value="bfs">Breadth-First Search</option>
+        <option value="dfs">Depth-First Search</option>
+        <option value="greedy">Greedy Best-First</option>
+      </select>
+    </div>
+
+    <div class="sb-section">
+      <h3>Size & Speed</h3>
+      <div class="row">
+        <div><label>Width</label><input type="number" id="mazeW" value="25" min="5" max="101" step="2"></div>
+        <div><label>Height</label><input type="number" id="mazeH" value="25" min="5" max="101" step="2"></div>
+      </div>
+      <label style="margin-top:6px">Animation Speed</label>
+      <input type="range" id="speed" min="1" max="100" value="50">
+      <div class="row" style="justify-content:space-between;font-size:0.7rem;color:var(--text-dim)"><span>Slow</span><span>Fast</span></div>
+    </div>
+
+    <div class="sb-section">
+      <h3>Mode</h3>
+      <div class="btn-group" style="margin-bottom:8px">
+        <div class="mode-toggle" style="flex:1">
+          <button class="btn active" id="modeSingle" onclick="setMode('single')">Single</button>
+          <button class="btn" id="modeCompare" onclick="setMode('compare')">Compare</button>
+        </div>
+      </div>
+      <div id="compareAlgoRow" style="display:none">
+        <label style="margin-top:4px">Compare Algorithm</label>
+        <select id="compareAlgo">
+          <option value="astar">A* Search</option>
+          <option value="dijkstra">Dijkstra's Algorithm</option>
+          <option value="bfs">Breadth-First Search</option>
+          <option value="dfs">Depth-First Search</option>
+          <option value="greedy">Greedy Best-First</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sb-section">
+      <h3>Controls</h3>
+      <div class="btn-group">
+        <button class="btn primary" id="btnGen" onclick="startGenerate()">Generate</button>
+        <button class="btn" id="btnSolve" onclick="startSolve()" disabled>Solve</button>
+        <button class="btn danger" id="btnClear" onclick="clearCanvas()">Clear</button>
+      </div>
+      <div class="btn-group" style="margin-top:6px">
+        <button class="btn" id="btnStep" onclick="doStep()" disabled>Step</button>
+        <button class="btn" id="btnPause" onclick="togglePause()" disabled>Pause</button>
+        <button class="btn" onclick="exportPNG()">Export PNG</button>
+      </div>
+    </div>
+
+    <div class="sb-section">
+      <h3>Statistics</h3>
+      <div class="stat-row"><span>Nodes Explored</span><span class="stat-val" id="statExplored">0</span></div>
+      <div class="stat-row"><span>Path Length</span><span class="stat-val" id="statPathLen">0</span></div>
+      <div class="stat-row"><span>Time Taken</span><span class="stat-val" id="statTime">0.00s</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="statStatus">Idle</span></div>
+      <div id="compareStats" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+        <div style="font-size:0.75rem;color:var(--accent2);margin-bottom:4px;font-weight:bold">Compare Panel</div>
+        <div class="stat-row"><span>Nodes Explored</span><span class="stat-val" id="statExplored2">0</span></div>
+        <div class="stat-row"><span>Path Length</span><span class="stat-val" id="statPathLen2">0</span></div>
+        <div class="stat-row"><span>Time Taken</span><span class="stat-val" id="statTime2">0.00s</span></div>
+        <div class="stat-row"><span>Status</span><span class="stat-val" id="statStatus2">Idle</span></div>
+      </div>
+    </div>
+
+    <div class="sb-section">
+      <h3>Legend</h3>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background:var(--wall)"></div>Wall</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--path)"></div>Path</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--visited)"></div>Visited</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--current)"></div>Current</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--solution)"></div>Solution</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--start)"></div>Start</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--end)"></div>End</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="mazeCanvas"></canvas>
+    <div id="compare-compare" class="compare-layout">
+      <div class="canvas-half"><canvas id="canvasA"></canvas></div>
+      <div class="canvas-half"><canvas id="canvasB"></canvas></div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ═══════════════════════════════════════════════
+//  CORE ENGINE
+// ═══════════════════════════════════════════════
+const canvas=document.getElementById('mazeCanvas');
+const ctx=canvas.getContext('2d');
+const canvasA=document.getElementById('canvasA');
+const ctxA=canvasA.getContext('2d');
+const canvasB=document.getElementById('canvasB');
+const ctxB=canvasB.getContext('2d');
+
+const COLORS={
+  wall:'#1a1a3e',path:'#0d0d1a',visited:'#0033aa',
+  visitedAlt:'#002266',current:'#ffaa00',solution:'#00ff88',
+  start:'#00ff00',end:'#ff3333',gridLines:'#1a1a2e'
+};
+
+let W=25,H=25,cellSize=0;
+let maze=[]; // 1=wall, 0=path
+let visited=new Set(),solution=new Set(),currentNode=null;
+let nodesExplored=0,pathLength=0,genStartTime=0;
+let animDelay=10,paused=false,stepMode=false,waitingForStep=false;
+let mazeGenerated=false,running=null;
+let mode='single'; // single | compare
+
+const DIRS=[[0,-1],[1,0],[0,1],[-1,0]]; // N E S W
+
+// ── UI HELPERS ──
+function $(id){return document.getElementById(id)}
+function setMode(m){
+  mode=m;
+  $('modeSingle').classList.toggle('active',m==='single');
+  $('modeCompare').classList.toggle('active',m==='compare');
+  $('compareAlgoRow').style.display=m==='compare'?'block':'none';
+  $('compareStats').style.display=m==='compare'?'block':'none';
+  if(m==='compare'){
+    canvas.style.display='none';
+    $('compare-compare').style.display='flex';
+    $('btnGen').textContent='Run Both';
+  }else{
+    canvas.style.display='block';
+    $('compare-compare').style.display='none';
+    $('btnGen').textContent='Generate';
+  }
+  clearCanvas();
+}
+function speedToDelay(v){return Math.round(109 - v*1.08)} // 1->108ms, 100->1ms
+function updateStats(p1){
+  const p=p1?{
+    e:$('statExplored'),pl:$('statPathLen'),t:$('statTime'),s:$('statStatus')
+  }:{
+    e:$('statExplored'),pl:$('statPathLen'),t:$('statTime'),s:$('statStatus')
+  };
+  p.e.textContent=nodesExplored;
+  p.pl.textContent=pathLength;
+  const elapsed=genStartTime?((performance.now()-genStartTime)/1000).toFixed(2)+'s':'0.00s';
+  t.textContent=elapsed;
+}
+function setStatus(s){$('statStatus').textContent=s}
+
+// ── CANVAS SETUP ──
+function resizeCanvas(){
+  const wrap=$('canvas-wrap');
+  const sidebarW=280;
+  const w=wrap.clientWidth-20,h=wrap.clientHeight-20;
+  const availW=w,availH=h;
+  if(!W||!H)return;
+  const cs=Math.floor(Math.min(availW/(W*2+1),availH/(H*2+1)));
+  cellSize=Math.max(cs,2);
+  const cw=(W*2+1)*cellSize,ch=(H*2+1)*cellSize;
+  const setC=(c)=>{c.width=cw;c.height=ch;c.style.width=cw+'px';c.style.height=ch+'px'};
+  setC(canvas);setC(canvasA);setC(canvasB);
+}
+function pos(r,c){return{r,c}}
+function idx(p){return p.r+','+p.c}
+
+// ── DRAWING ──
+function drawCell(ctx,p,color,s=cellSize){
+  const x=p.c*s,y=p.r*s;
+  ctx.fillStyle=color;
+  ctx.fillRect(x,y,s,s);
+}
+function drawMaze(ctx,gr,gc){
+  const rows=gr,cols=gc;
+  ctx.fillStyle=COLORS.wall;
+  ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    if(!maze[r]||maze[r][c])continue;
+    drawCell(ctx,pos(r*2+1,c*2+1),COLORS.path);
+    // passages
+    if(c+1<cols&&!maze[r][c+1])drawCell(ctx,pos(r*2+1,c*2+2),COLORS.path);
+    if(r+1<rows&&!maze[r+1][c])drawCell(ctx,pos(r*2+2,c*2+1),COLORS.path);
+  }
+}
+function drawSeen(ctx,vis,sol,cur,rows,cols){
+  vis.forEach(k=>{
+    const[p]=k.split(',').map(Number);
+    drawCell(ctx,pos(p[0],p[1]),COLORS.visited);
+  });
+  sol.forEach(k=>{
+    const[p]=k.split(',').map(Number);
+    drawCell(ctx,pos(p[0],p[1]),COLORS.solution);
+  });
+  if(cur){
+    drawCell(ctx,pos(cur[0],cur[1]),COLORS.current);
+  }
+}
+function drawEndpoints(ctx,rows,cols){
+  drawCell(ctx,pos(1,1),COLORS.start);
+  drawCell(ctx,pos((rows-1)*2+1,(cols-1)*2+1),COLORS.end);
+}
+function render(ctx,vis,sol,cur,rows,cols){
+  ctx.fillStyle=COLORS.wall;
+  ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);
+  ctx.save();
+  const cw=(cols*2+1)*cellSize,ch=(rows*2+1)*cellSize;
+  if(ctx.canvas.width>cw)ctx.translate((ctx.canvas.width-cw)/2,0);
+  if(ctx.canvas.height>ch)ctx.translate(0,(ctx.canvas.height-ch)/2);
+  drawMaze(ctx,rows,cols);
+  drawSeen(ctx,vis,sol,cur,rows,cols);
+  drawEndpoints(ctx,rows,cols);
+  ctx.restore();
+}
+
+// ── MAZE HELPERS ──
+function createMaze(){
+  W=parseInt($('mazeW').value)|0;H=parseInt($('mazeH').value)|0;
+  W=W%2===0?W+1:W;H=H%2===0?H+1:H;
+  $('mazeW').value=W;$('mazeH').value=H;
+  const rows=H,cols=W;
+  maze=Array.from({length:rows},()=>Array(cols).fill(1));
+  return{rows,cols};
+}
+function cellToGrid(r,c){return pos(r*2+1,c*2+1)}
+function gridToCell(r,c){return pos((r-1)/2,(c-1)/2)}
+
+// ═══════════════════════════════════════════════
+//  MAZE GENERATORS (stepping generators)
+// ═══════════════════════════════════════════════
+
+function* genRecursiveBacktracker(){
+  const{rows,cols}=createMaze();resizeCanvas();
+  maze[0][0]=0;
+  const stack=[pos(0,0)];
+  while(stack.length){
+    const top=stack[stack.length-1];
+    const neighbors=[];
+    for(const[dr,dc]of DIRS){
+      const nr=top.r+dr*2,nc=top.c+dc*2;
+      if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&maze[nr][nc]===1){
+        neighbors.push({r:nr,c:nc,wr:top.r+dr,wc:top.c+dc});
+      }
+    }
+    if(neighbors.length){
+      const pick=neighbors[Math.floor(Math.random()*neighbors.length)];
+      maze[pick.r][pick.c]=0;maze[pick.wr][pick.wc]=0;
+      stack.push(pos(pick.r,pick.c));
+      yield{maze,cell:cellToGrid(pick.r,pick.c),row:rows,col:cols};
+    }else{
+      stack.pop();
+    }
+  }
+  yield{done:true,rows,cols};
+}
+
+function* genPrims(){
+  const{rows,cols}=createMaze();resizeCanvas();
+  maze[0][0]=0;
+  let walls=[];
+  const addWalls=(r,c)=>{
+    for(const[dr,dc]of DIRS){
+      const nr=r+dr*2,nc=c+dc*2;
+      if(nr>=0&&nr<rows&&nc>=0&&nc<cols) walls.push({r:nr,c:nc,wr:r+dr,wc:c+dc});
+    }
+  };
+  addWalls(0,0);
+  while(walls.length){
+    const i=Math.floor(Math.random()*walls.length);
+    const w=walls[i];walls.splice(i,1);
+    if(maze[w.r][w.c]===1){
+      maze[w.r][w.c]=0;maze[w.wr][w.wc]=0;
+      addWalls(w.r,w.c);
+      yield{maze,cell:cellToGrid(w.r,w.c),row:rows,col:cols};
+    }
+  }
+  yield{done:true,rows,cols};
+}
+
+function* genKruskals(){
+  const{rows,cols}=createMaze();resizeCanvas();
+  const setId=Array.from({length:rows},()=>Array(cols).fill(null));
+  let id=0;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)setId[r][c]=id++;
+  const find=(r,c)=> setId[r][c]===id?pos(r,c):findParent(r,c);
+  function findParent(r,c){let s=setId[r][c];while(setId[Math.floor(s/cols)][s%cols]!==s){s=setId[Math.floor(s/cols)][s%cols];}return pos(Math.floor(s/cols),s%cols);}
+  // simplified
+  function rep(r,c){let i=setId[r][c];while(true){const pr=Math.floor(i/cols),pc=i%cols;const j=setId[pr][pc];if(j===i)return pos(pr,pc);i=j;}}
+  function union(a,b){const ra=rep(a.r,a.c),rb=rep(b.r,b.c);if(ra.r!==rb.r||ra.c!==rb.c){setId[rb.r][rb.c]=setId[ra.r][ra.c];return true;}return false;}
+  const edges=[];
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    if(c+1<cols)edges.push({r1:r,c1:c,r2:r,c2:c+1,wr:r,wc:c,wd:0});
+    if(r+1<rows)edges.push({r1:r,c1:c,r2:r+1,c2:c,wr:r,c,wd:1});
+  }
+  for(let i=edges.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[edges[i],edges[j]]=[edges[j],edges[i]];}
+  maze[0][0]=0;
+  for(const e of edges){
+    const a=pos(e.r1,e.c1),b=pos(e.r2,e.c2);
+    const ra=rep(a.r,a.c),rb=rep(b.r,b.c);
+    if(ra.r!==rb.r||ra.c!==rb.c){
+      // union
+      setId[rb.r][rb.c]=setId[ra.r][ra.c];
+      if(!maze[e.r1][e.c1]||!maze[e.r2][e.c2]){
+        maze[e.r1][e.c1]=0;maze[e.r2][e.c2]=0;
+        const gr=e.wr+1+(e.r2-e.r1),gc=e.wc+1+(e.c2-e.c1);
+        // just mark the connecting wall cell
+        maze[e.wr+(e.r1!==e.r2?1:0)][e.wc+(e.c1!==e.c2?1:0)]=0;
+        yield{maze,cell:cellToGrid(e.r2,e.c2),row:rows,col:cols};
+      }
+    }
+  }
+  // Ensure all cells passable
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)maze[r][c]=0;
+  yield{done:true,rows,cols};
+}
+
+function* genEller(){
+  const{rows,cols}=createMaze();resizeCanvas();
+  const sets=[];let nextSet=0;
+  function findSet(v){for(let i=0;i<sets.length;i++)if(sets[i].has(v))return i;return-1;}
+  function unionSets(a,b){for(const v of sets[b])sets[a].add(v);sets.splice(b,1);}
+  // Init row 0
+  for(let c=0;c<cols;c++){sets.push(new Set([c]));}
+  maze[0]=Array(cols).fill(0);
+  for(let r=0;r<rows-1;r++){
+    // Right connections
+    for(let c=0;c<cols-1;c++){
+      const s1=findSet(c),s2=findSet(c+1);
+      if(s1!==s2&&(Math.random()<0.5)){
+        maze[r][c+1]=0;
+        unionSets(s1<s2?s1:s2,s1<s2?s2:s1);
+        yield{maze,cell:cellToGrid(r,c+1),row:rows,col:cols};
+      }
+    }
+    // Vertical connections
+    const newSets=[];const newRow=Array(cols).fill(1);
+    const members={};
+    for(let c=0;c<cols;c++){const s=findSet(c);if(!members[s])members[s]=[];members[s].push(c);}
+    for(const s in members){
+      const arr=members[s];
+      const vCount=Math.max(1,Math.floor(Math.random()*(arr.length+1)));
+      const shuffled=arr.sort(()=>Math.random()-0.5);
+      for(let i=0;i<vCount;i++){newRow[shuffled[i]]=0;}
+      for(let i=0;i<arr.length;i++){const ns=new Set([arr[i]]);newSets.push(ns);}
+    }
+    maze[r+1]=newRow;
+    sets.length=0;sets.push(...newSets);
+    yield{maze,cell:cellToGrid(r+1,0),row:rows,col:cols};
+  }
+  // Last row: connect all
+  for(let c=0;c<cols-1;c++){
+    const s1=findSet(c),s2=findSet(c+1);
+    if(s1!==s2){
+      maze[rows-1][c+1]=0;
+      unionSets(s1<s2?s1:s2,s1<s2?s2:s1);
+      yield{maze,cell:cellToGrid(rows-1,c+1),row:rows,col:cols};
+    }
+  }
+  yield{done:true,rows,cols};
+}
+
+function* genBinaryTree(){
+  const{rows,cols}=createMaze();resizeCanvas();
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)maze[r][c]=1;
+  for(let r=0;r<rows;r+=2){
+    for(let c=0;c<cols;c+=2){
+      maze[r][c]=0;
+      const canN=r>0,canW=c>0;
+      if(canN&&canW){
+        if(Math.random()<0.5){maze[r-1][c]=0;}else{maze[r][c-1]=0;}
+      }else if(canN){maze[r-1][c]=0;}
+      else if(canW){maze[r][c-1]=0;}
+      yield{maze,cell:cellToGrid(r,c),row:rows,col:cols};
+    }
+  }
+  yield{done:true,rows,cols};
+}
+
+function getGenerator(algo){
+  switch(algo){
+    case'recursive-backtracker':return genRecursiveBacktracker();
+    case'prims':return genPrims();
+    case'kruskals':return genKruskals();
+    case'ellers':return genEller();
+    case'binary-tree':return genBinaryTree();
+    default:return genRecursiveBacktracker();
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  PATHFINDING ALGORITHMS (stepping generators)
+// ═══════════════════════════════════════════════
+
+function getStartEnd(rows,cols){
+  return{start:pos(1,1),end:pos((rows-1)*2+1,(cols-1)*2+1)};
+}
+
+function* solveAStar(){
+  const rows=H,cols=W;
+  const{start,end}=getStartEnd(rows,cols);
+  const open=[{...start,g:0,h:0,f:0}];
+  const openSet=new Set([idx(start)]);
+  const gScore=MapFrom(idx(start),0);
+  const cameFrom={};
+  const vis=new Set();
+  nodesExplored=0;
+  while(open.length){
+    open.sort((a,b)=>a.f-b.f);
+    const cur=open.shift();
+    const ck=idx(cur);
+    openSet.delete(ck);
+    if(vis.has(ck))continue;
+    vis.add(ck);nodesExplored++;
+    currentNode=pos(cur.r,cur.c);
+    if(cur.r===end.r&&cur.c===end.c){
+      // reconstruct
+      solution=new Set();
+      let k=ck;while(k){solution.add(k);k=cameFrom[k];}
+      pathLength=solution.size;
+      yield{found:true,vis,solution,cur:null,rows,cols};
+      return;
+    }
+    for(const[dr,dc]of DIRS){
+      const nr=cur.r+dr,nc=cur.c+dc;
+      if(nr<0||nr>=(rows*2+1)||nc<0||nc>=(cols*2+1))continue;
+      const np=pos(nr,nc);
+      const cellR=(nr-1)/2,cellC=(nc-1)/2;
+      if(nr%2===0||nc%2===0){// wall passage check
+        if(cellR>=0&&cellR<rows&&cellC>=0&&cellC<cols){
+          if(maze[Math.floor((nr-1)/2)]&&maze[Math.floor((nr-1)/2)][Math.floor((nc-1)/2)]===1)continue;
+        }
+      }
+      const nk=idx(np);
+      if(vis.has(nk))continue;
+      const tentative=gScore.get(ck)+1;
+      if(!gScore.has(nk)||tentative<gScore.get(nk)){
+        cameFrom[nk]=ck;
+        gScore.set(nk,tentative);
+        const h=Math.abs(nr-end.r)+Math.abs(nc-end.c);
+        const f=tentative+h;
+        if(!openSet.has(nk)){open.push({r:nr,c:nc,g:tentative,h,f});openSet.add(nk);}
+      }
+    }
+    yield{found:false,vis,solution:new Set(),cur:pos(cur.r,cur.c),rows,cols};
+  }
+  yield{found:false,vis,solution:new Set(),cur:null,rows,cols,done:true};
+}
+
+function* solveDijkstra(){
+  const rows=H,cols=W;
+  const{start,end}=getStartEnd(rows,cols);
+  const pq=[{...start,d:0}];
+  const dist=MapFrom(idx(start),0);
+  const cameFrom={};
+  const vis=new Set();
+  nodesExplored=0;
+  while(pq.length){
+    pq.sort((a,b)=>a.d-b.d);
+    const cur=pq.shift();
+    const ck=idx(cur);
+    if(vis.has(ck))continue;
+    vis.add(ck);nodesExplored++;
+    currentNode=pos(cur.r,cur.c);
+    if(cur.r===end.r&&cur.c===end.c){
+      solution=new Set();let k=ck;while(k){solution.add(k);k=cameFrom[k];}
+      pathLength=solution.size;
+      yield{found:true,vis,solution,cur:null,rows,cols};
+      return;
+    }
+    for(const[dr,dc]of DIRS){
+      const nr=cur.r+dr,nc=cur.c+dc;
+      if(nr<0||nr>=(rows*2+1)||nc<0||nc>=(cols*2+1))continue;
+      const nk=idx(pos(nr,nc));
+      if(vis.has(nk))continue;
+      const nd=cur.d+1;
+      if(!dist.has(nk)||nd<dist.get(nk)){
+        dist.set(nk,nd);cameFrom[nk]=ck;
+        pq.push({r:nr,c:nc,d:nd});
+      }
+    }
+    yield{found:false,vis,solution:new Set(),cur:pos(cur.r,cur.c),rows,cols};
+  }
+  yield{found:false,vis,solution:new Set(),cur:null,rows,cols,done:true};
+}
+
+function* solveBFS(){
+  const rows=H,cols=W;
+  const{start,end}=getStartEnd(rows,cols);
+  const q=[start];const qSet=new Set([idx(start)]);
+  const cameFrom={};
+  const vis=new Set();
+  nodesExplored=0;
+  while(q.length){
+    const cur=q.shift();
+    const ck=idx(cur);
+    qSet.delete(ck);
+    if(vis.has(ck))continue;
+    vis.add(ck);nodesExplored++;
+    currentNode=pos(cur.r,cur.c);
+    if(cur.r===end.r&&cur.c===end.c){
+      solution=new Set();let k=ck;while(k){solution.add(k);k=cameFrom[k];}
+      pathLength=solution.size;
+      yield{found:true,vis,solution,cur:null,rows,cols};
+      return;
+    }
+    for(const[dr,dc]of DIRS){
+      const nr=cur.r+dr,nc=cur.c+dc;
+      if(nr<0||nr>=(rows*2+1)||nc<0||nc>=(cols*2+1))continue;
+      const nk=idx(pos(nr,nc));
+      if(vis.has(nk)||qSet.has(nk))continue;
+      cameFrom[nk]=ck;q.push(pos(nr,nc));qSet.add(nk);
+    }
+    yield{found:false,vis,solution:new Set(),cur:pos(cur.r,cur.c),rows,cols};
+  }
+  yield{found:false,vis,solution:new Set(),cur:null,rows,cols,done:true};
+}
+
+function* solveDFS(){
+  const rows=H,cols=W;
+  const{start,end}=getStartEnd(rows,cols);
+  const stack=[start];
+  const cameFrom={};
+  const vis=new Set();
+  nodesExplored=0;
+  while(stack.length){
+    const cur=stack.pop();
+    const ck=idx(cur);
+    if(vis.has(ck))continue;
+    vis.add(ck);nodesExplored++;
+    currentNode=pos(cur.r,cur.c);
+    if(cur.r===end.r&&cur.c===end.c){
+      solution=new Set();let k=ck;while(k){solution.add(k);k=cameFrom[k];}
+      pathLength=solution.size;
+      yield{found:true,vis,solution,cur:null,rows,cols};
+      return;
+    }
+    for(const[dr,dc]of DIRS){
+      const nr=cur.r+dr,nc=cur.c+dc;
+      if(nr<0||nr>=(rows*2+1)||nc<0||nc>=(cols*2+1))continue;
+      const nk=idx(pos(nr,nc));
+      if(vis.has(nk))continue;
+      cameFrom[nk]=ck;stack.push(pos(nr,nc));
+    }
+    yield{found:false,vis,solution:new Set(),cur:pos(cur.r,cur.c),rows,cols};
+  }
+  yield{found:false,vis,solution:new Set(),cur:null,rows,cols,done:true};
+}
+
+function* solveGreedy(){
+  const rows=H,cols=W;
+  const{start,end}=getStartEnd(rows,cols);
+  const pq=[{...start,h:0}];
+  const cameFrom={};
+  const vis=new Set();
+  nodesExplored=0;
+  while(pq.length){
+    pq.sort((a,b)=>a.h-b.h);
+    const cur=pq.shift();
+    const ck=idx(cur);
+    if(vis.has(ck))continue;
+    vis.add(ck);nodesExplored++;
+    currentNode=pos(cur.r,cur.c);
+    if(cur.r===end.r&&cur.c===end.c){
+      solution=new Set();let k=ck;while(k){solution.add(k);k=cameFrom[k];}
+      pathLength=solution.size;
+      yield{found:true,vis,solution,cur:null,rows,cols};
+      return;
+    }
+    for(const[dr,dc]of DIRS){
+      const nr=cur.r+dr,nc=cur.c+dc;
+      if(nr<0||nr>=(rows*2+1)||nc<0||nc>=(cols*2+1))continue;
+      const nk=idx(pos(nr,nc));
+      if(vis.has(nk))continue;
+      cameFrom[nk]=ck;
+      const h=Math.abs(nr-end.r)+Math.abs(nc-end.c);
+      pq.push({r:nr,c:nc,h});
+    }
+    yield{found:false,vis,solution:new Set(),cur:pos(cur.r,cur.c),rows,cols};
+  }
+  yield{found:false,vis,solution:new Set(),cur:null,rows,cols,done:true};
+}
+
+function MapFrom(key,val){const m=new Map();m.set(key,val);return m;}
+
+function getSolver(algo){
+  switch(algo){
+    case'astar':return solveAStar();
+    case'dijkstra':return solveDijkstra();
+    case'bfs':return solveBFS();
+    case'dfs':return solveDFS();
+    case'greedy':return solveGreedy();
+    default:return solveAStar();
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════════════════════
+
+let genIterator=null,solveIterator=null;
+let genRows=0,genCols=0;
+
+function startGenerate(){
+  if(running)return;
+  animDelay=speedToDelay(parseInt($('speed').value));
+  const algo=$('genAlgo').value;
+  genIterator=getGenerator(algo);
+  mazeGenerated=false;visited=new Set();solution=new Set();currentNode=null;
+  nodesExplored=0;pathLength=0;genStartTime=performance.now();
+  paused=false;stepMode=false;
+  $('btnGen').disabled=true;$('btnSolve').disabled=true;$('btnStep').disabled=false;$('btnPause').disabled=false;
+  setStatus('Generating...');
+  if(mode==='compare'){
+    // In compare mode, generate maze then run both solvers
+    runCompareGen();
+  }else{
+    running='gen';
+    animateGen();
+  }
+}
+
+function animateGen(){
+  if(!running||running!=='gen')return;
+  if(paused){requestAnimationFrame(animateGen);return;}
+  const result=genIterator.next();
+  if(result.done||result.value.done){
+    mazeGenerated=true;
+    running=null;
+    genRows=result.value.rows;genCols=result.value.cols;
+    render(ctx,new Set(),new Set(),null,genRows,genCols);
+    $('btnGen').disabled=false;$('btnSolve').disabled=false;$('btnStep').disabled=true;$('btnPause').disabled=true;
+    const elapsed=((performance.now()-genStartTime)/1000).toFixed(2);
+    $('statTime').textContent=elapsed+'s';
+    setStatus('Maze Ready');
+    return;
+  }
+  const v=result.value;
+  render(ctx,new Set(),newSet(),v.cell,v.row,v.col);
+  if(stepMode&&!waitingForStep){waitingForStep=true;$('btnStep').textContent='Next Step';}
+  if(stepMode&&waitingForStep)return;
+  waitingForStep=false;
+  setTimeout(()=>requestAnimationFrame(animateGen),animDelay);
+}
+
+function newSet(){return new Set();}
+
+function startSolve(){
+  if(running||!mazeGenerated)return;
+  animDelay=speedToDelay(parseInt($('speed').value));
+  const algo=$('pathAlgo').value;
+  solveIterator=getSolver(algo);
+  visited=new Set();solution=new Set();currentNode=null;
+  nodesExplored=0;pathLength=0;genStartTime=performance.now();
+  paused=false;stepMode=false;
+  $('btnGen').disabled=true;$('btnSolve').disabled=true;$('btnStep').disabled=false;$('btnPause').disabled=false;
+  setStatus('Solving...');
+  running='solve';
+  animateSolve();
+}
+
+function animateSolve(){
+  if(!running||running!=='solve')return;
+  if(paused){requestAnimationFrame(animateSolve);return;}
+  const result=solveIterator.next();
+  if(result.done){
+    running=null;
+    $('btnGen').disabled=false;$('btnSolve').disabled=false;$('btnStep').disabled=true;$('btnPause').disabled=true;
+    setStatus('No Solution');
+    return;
+  }
+  const v=result.value;
+  if(v.found){
+    render(ctx,v.vis,v.solution,null,v.rows,v.cols);
+    running=null;
+    $('btnGen').disabled=false;$('btnSolve').disabled=false;$('btnStep').disabled=true;$('btnPause').disabled=true;
+    const elapsed=((performance.now()-genStartTime)/1000).toFixed(2);
+    $('statTime').textContent=elapsed+'s';
+    $('statExplored').textContent=nodesExplored;
+    $('statPathLen').textContent=pathLength;
+    setStatus('Solved!');
+    return;
+  }
+  if(v.done){
+    running=null;
+    $('btnGen').disabled=false;$('btnSolve').disabled=false;$('btnStep').disabled=true;$('btnPause').disabled=true;
+    setStatus('No Solution');
+    return;
+  }
+  render(ctx,v.vis,v.solution,v.cur,v.rows,v.cols);
+  $('statExplored').textContent=nodesExplored;
+  if(stepMode&&!waitingForStep){waitingForStep=true;}
+  if(stepMode&&waitingForStep)return;
+  waitingForStep=false;
+  setTimeout(()=>requestAnimationFrame(animateSolve),animDelay);
+}
+
+function doStep(){
+  if(!waitingForStep)return;
+  waitingForStep=false;
+  if(running==='gen')animateGen();
+  else if(running==='solve')animateSolve();
+}
+
+function togglePause(){
+  paused=!paused;
+  $('btnPause').textContent=paused?'Resume':'Pause';
+  if(!paused){
+    if(running==='gen')animateGen();
+    else if(running==='solve')animateSolve();
+  }
+}
+
+function clearCanvas(){
+  running=null;genIterator=null;solveIterator=null;
+  mazeGenerated=false;visited=new Set();solution=new Set();currentNode=null;
+  nodesExplored=0;pathLength=0;
+  const canvases=[canvas,canvasA,canvasB];
+  const ctxs=[ctx,ctxA,ctxB];
+  for(let i=0;i<canvases.length;i++){
+    ctxs[i].fillStyle=COLORS.wall;
+    ctxs[i].fillRect(0,0,canvases[i].width,canvases[i].height);
+  }
+  $('btnGen').disabled=false;$('btnSolve').disabled=true;$('btnStep').disabled=true;$('btnPause').disabled=true;
+  $('statExplored').textContent='0';$('statPathLen').textContent='0';$('statTime').textContent='0.00s';
+  setStatus('Idle');
+}
+
+function exportPNG(){
+  const target=mode==='compare'?canvasA:canvas;
+  const link=document.createElement('a');
+  link.download='maze.png';
+  link.href=target.toDataURL('image/png');
+  link.click();
+}
+
+// ═══════════════════════════════════════════════
+//  COMPARE MODE
+// ═══════════════════════════════════════════════
+
+function runCompareGen(){
+  // Generate maze first
+  const algo=$('genAlgo').value;
+  const gen=getGenerator(algo);
+  running='compare-gen';
+  function step(){
+    if(running!=='compare-gen')return;
+    const result=gen.next();
+    if(result.done||result.value.done){
+      mazeGenerated=true;
+      genRows=result.value.rows;genCols=result.value.cols;
+      running=null;
+      // Now run both solvers
+      runCompareSolvers();
+      return;
+    }
+    const v=result.value;
+    render(ctx,new Set(),new Set(),v.cell,v.row,v.col);
+    setTimeout(()=>requestAnimationFrame(step),animDelay);
+  }
+  requestAnimationFrame(step);
+}
+
+let compareVisA=new Set(),compareSolA=new Set(),compareCurA=null;
+let compareVisB=new Set(),compareSolB=new Set(),compareCurB=null;
+let compNodesA=0,compPathA=0,compNodesB=0,compPathB=0;
+let compStartTime=0;
+
+function runCompareSolvers(){
+  const algoA=$('pathAlgo').value;
+  const algoB=$('compareAlgo').value;
+  const solverA=getSolver(algoA);
+  const solverB=getSolver(algoB);
+  compareVisA=new Set();compareSolA=new Set();compareCurA=null;
+  compareVisB=new Set();compareSolB=new Set();compareCurB=null;
+  compNodesA=0;compPathA=0;compNodesB=0;compPathB=0;
+  compStartTime=performance.now();
+  running='compare-solve';
+  $('statStatus').textContent=algoA+'...';
+  $('statStatus2').textContent=algoB+'...';
+  function step(){
+    if(running!=='compare-solve')return;
+    const rA=solverA.next();
+    const rB=solverB.next();
+    // Process A
+    if(!rA.done&&!rA.value.found&&!rA.value.done){
+      compareVisA=rA.value.vis;compareCurA=rA.value.cur;compNodesA=rA.value.vis.size;
+    }else if(rA.done||rA.value.found||rA.value.done){
+      if(rA.value&&rA.value.found){compareSolA=rA.value.solution;compareCurA=null;compPathA=rA.value.solution.size;}
+    }
+    // Process B
+    if(!rB.done&&!rB.value.found&&!rB.value.done){
+      compareVisB=rB.value.vis;compareCurB=rB.value.cur;compNodesB=rB.value.vis.size;
+    }else if(rB.done||rB.value.found||rB.value.done){
+      if(rB.value&&rB.value.found){compareSolB=rB.value.solution;compareCurB=null;compPathB=rA.value.solution.size;}
+    }
+    // Render both
+    render(ctxA,compareVisA,compareSolA,compareCurA,genRows,genCols);
+    render(ctxB,compareVisB,compareSolB,compareCurB,genRows,genCols);
+    // Update stats
+    const elapsed=((performance.now()-compStartTime)/1000).toFixed(2);
+    $('statExplored').textContent=compNodesA;$('statPathLen').textContent=compPathA;$('statTime').textContent=elapsed+'s';
+    $('statExplored2').textContent=compNodesB;$('statPathLen2').textContent=compPathB;$('statTime2').textContent=elapsed+'s';
+    // Check done
+    const doneA=rA.done||rA.value.found||rA.value.done;
+    const doneB=rB.done||rB.value.found||rB.value.done;
+    if(doneA&&doneB){
+      running=null;
+      $('btnGen').disabled=false;$('btnSolve').disabled=false;$('btnStep').disabled=true;$('btnPause').disabled=true;
+      $('statStatus').textContent=rA.value&&rA.value.found?'Solved!':'No Path';
+      $('statStatus2').textContent=rB.value&&rB.value.found?'Solved!':'No Path';
+      return;
+    }
+    setTimeout(()=>requestAnimationFrame(step),animDelay);
+  }
+  requestAnimationFrame(step);
+}
+
+// ═══════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════
+window.addEventListener('resize',()=>{
+  resizeCanvas();
+  if(mazeGenerated&&genRows&&genCols){
+    render(ctx,visited,solution,currentNode,genRows,genCols);
+  }
+});
+
+// Speed slider
+$('speed').addEventListener('input',()=>{
+  animDelay=speedToDelay(parseInt($('speed').value));
+});
+
+// Initial resize
+setTimeout(()=>{
+  resizeCanvas();
+  // Draw empty grid
+  const rows=H,cols=W;
+  canvas.width=(cols*2+1)*cellSize;
+  canvas.height=(rows*2+1)*cellSize;
+  ctx.fillStyle=COLORS.wall;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+},50);
+</script>
+</body>
+</html>
